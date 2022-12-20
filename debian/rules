@@ -1,0 +1,184 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper. 
+# GNU copyright 1997 by Joey Hess.
+#
+# This version is for a hypothetical package that builds an
+# architecture-dependant package, as well as an architecture-independent
+# package.
+
+# Uncomment this to turn on verbose mode. 
+#export DH_VERBOSE=1
+VARIETALS=krb5
+CFLAGS=-g -O
+
+PACKAGES:=-plibzephyr4 -pzephyr-clients -pzephyr-server -plibzephyr-dev $(foreach i,$(VARIETALS),-plibzephyr4-$(i) -pzephyr-server-$(i))
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+CONFIGURE_ROOT=--prefix=/usr --mandir=\$${prefix}/share/man \
+	--infodir=\$${prefix}/share/info --sysconfdir=/etc --datadir=/etc \
+	--with-cares=/usr --with-hesiod=/usr --enable-cmu-zwgcplus \
+	--libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH)
+CONFIGURE_krb5=--with-krb5=/usr
+
+# see /usr/share/doc/autotools-dev/README.Debian.gz
+export DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# FOR AUTOCONF 2.52 AND NEWER ONLY
+ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+  CONFIGURE_ROOT += --build $(DEB_HOST_GNU_TYPE)
+else
+  CONFIGURE_ROOT += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+BUILD_VARIETALS=$(VARIETALS) no-krb
+PKG_VERSION:=$(shell dpkg-parsechangelog | awk '/^Version:/ {print $$2}')
+PKG_DISTRO:=$(shell lsb_release -si)
+
+STASH:=debian/autogoo-stash
+STASH_H:=debian/autogoo-h-stash
+
+stash: stash-stamp
+stash-stamp:
+	-mkdir $(STASH)
+	mv -v m4 aclocal.m4 config.guess config.sub configure install-sh ltmain.sh VERSION $(STASH)
+	-mkdir $(STASH_H)
+	mv -v h/config.h.in $(STASH_H)
+	touch stash-stamp
+
+configure: configure-stamp
+configure-stamp: stash-stamp
+	dh_testdir
+	# Add here commands to configure the package.
+	libtoolize -ic
+	autoreconf
+	echo "$(PKG_VERSION) ($(PKG_DISTRO))" > VERSION
+	mkdir -p $(BUILD_VARIETALS)
+	$(foreach VARIETY,$(BUILD_VARIETALS),(cd $(VARIETY) && CFLAGS="$(CFLAGS)" ../configure $(CONFIGURE_$(VARIETY)) $(CONFIGURE_ROOT));)
+	touch configure-stamp
+
+build: build-stamp
+build-arch: build-stamp
+build-indep: build-stamp
+build-stamp: configure-stamp
+	dh_testdir
+
+	# Add here commands to compile the package.
+	set -e; \
+	for dir in $(VARIETALS) ; do  \
+		$(MAKE) -C $$dir h/zephyr_version.h; $(MAKE) -C $$dir/lib all; $(MAKE) -C $$dir/server; \
+	done
+	$(MAKE) -C no-krb all
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	-rm -f build-stamp configure-stamp
+
+	# Add here commands to clean up after the build process.
+	-rm -rf $(BUILD_VARIETALS) debian/tmp-krb*
+	-rm $(foreach v,$(VARIETALS),$(foreach s,files templates config postinst,debian/zephyr-server-$(v).$(s)))
+	-if test -n "$(filter-out krb5,$(VARIETALS))"; then \
+	 rm $(foreach v,$(filter-out krb5,$(VARIETALS)),$(foreach s,docs init postrm,debian/zephyr-server-$(v).$(s))); \
+	fi
+	-rm debian/libzephyr4-krb5.files
+	-rm stash-stamp
+	-test -d $(STASH)/autom4te.cache && rm -rf autom4te.cache
+	-test -d $(STASH)/m4 && rm -rf m4
+	-test -d $(STASH) && mv $(STASH)/* .
+	-rmdir $(STASH)
+	-test -d $(STASH_H) && mv $(STASH_H)/* h
+	-rmdir $(STASH_H)
+
+	dh_clean -v
+
+install: DH_OPTIONS=
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	-rm -rf debian/tmp-krb*
+	dh_installdirs
+
+	# Add here commands to install the package into debian/tmp.
+	$(MAKE) -C no-krb DESTDIR=$(CURDIR)/debian/tmp install
+	for dir in $(VARIETALS); do \
+		$(MAKE) -C $$dir SUBDIRS="lib server" DESTDIR=$(CURDIR)/debian/tmp-$$dir install; \
+	done
+	mkdir -p debian/tmp/etc/zephyr/acl
+	set -x; for i in debian/acl/*; do install -c -m 644 -o root $$i debian/tmp/etc/zephyr/acl; done; set +x
+	install -c -m 644 debian/zephyr.vars debian/tmp/etc/zephyr
+	install -c -m 644 debian/default.subscriptions debian/tmp/etc/zephyr
+	for dir in $(VARIETALS); do \
+		cp -rp debian/tmp/etc/zephyr/acl debian/tmp-$$dir/etc/zephyr; \
+	done
+
+# Build architecture-independent files here.
+# Pass -i to all debhelper commands in this target to reduce clutter.
+binary-indep: build install
+
+# Build architecture-dependent files here.
+# Pass -a to all debhelper commands in this target to reduce clutter.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	set -e; \
+	for file in files templates config postinst docs; do \
+		for dir in $(VARIETALS); do \
+			cp debian/zephyr-server.$$file debian/zephyr-server-$$dir.$$file; \
+		done; \
+	done
+	for file in docs init postrm; do \
+		for dir in $(filter-out krb5,$(VARIETALS)); do \
+			cp debian/zephyr-server-krb5.$$file debian/zephyr-server-$$dir.$$file; \
+		done; \
+	done
+	for dir in $(VARIETALS); do \
+		cp debian/libzephyr4.files debian/libzephyr4-$$dir.files; \
+	done
+	dh_movefiles  -plibzephyr4 -pzephyr-clients -pzephyr-server -plibzephyr-dev
+	for dir in $(VARIETALS); do \
+		dh_movefiles --sourcedir=debian/tmp-$$dir -plibzephyr4-$$dir -pzephyr-server-$$dir; \
+	done
+	dh_installdebconf 
+	dh_installdocs
+	dh_installinit -pzephyr-clients --init-script=zhm --no-start
+	dh_installinit -pzephyr-server --init-script=zephyrd
+	for variety in $(VARIETALS); do \
+		dh_installinit -pzephyr-server-$$variety --init-script=zephyrd; \
+		mkdir -p debian/libzephyr4-$$variety/usr/share/lintian/overrides; \
+		sed -e "s/@VARIETY@/$$variety/" debian/soname-override \
+		> debian/libzephyr4-$$variety/usr/share/lintian/overrides/libzephyr4-$$variety; \
+	done
+	dh_installchangelogs 
+	for dir in zephyr-clients libzephyr-dev \
+		libzephyr4 $(foreach i,$(VARIETALS),libzephyr4-$i) \
+		zephyr-server $(foreach i,$(VARIETALS),zepyr-server-$i); do \
+		find debian/$$i -type d -empty -delete; \
+	done
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	# sigh
+	for dir in $(VARIETALS); do \
+		cp debian/libzephyr4/DEBIAN/shlibs debian/libzephyr4-$$dir/DEBIAN/shlibs; \
+	done
+	dh_shlibdeps $(PACKAGES)
+	dh_installdeb $(PACKAGES)
+	dh_gencontrol $(PACKAGES)
+	dh_md5sums $(PACKAGES)
+	dh_builddeb $(PACKAGES)
+	for dir in $(VARIETALS); do \
+		dh_builddeb -plibzephyr4-$$dir -pzephyr-server-$$dir; \
+	done
+
+
+binary: binary-indep binary-arch
+
+.PHONY: autotools build clean binary-indep binary-arch binary install stash

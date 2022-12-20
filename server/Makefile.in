@@ -1,0 +1,89 @@
+SHELL=@SHELL@
+
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+datadir=@datadir@
+sysconfdir=@sysconfdir@
+sbindir=@sbindir@
+lsbindir=@lsbindir@
+datarootdir=@datarootdir@
+
+includedir=@includedir@
+mandir=@mandir@
+libdir=@libdir@
+top_builddir=..
+
+srcdir=@srcdir@
+top_srcdir=@top_srcdir@
+BUILDTOP=..
+VPATH=@srcdir@
+LIBTOOL=@LIBTOOL@
+CC=@CC@
+INSTALL=@INSTALL@
+
+editman = sed \
+          -e 's|@datadir[@]|${datadir}|g' \
+          -e 's|@sysconfdir[@]|${sysconfdir}|g' \
+          -e 's|@sbindir[@]|${sbindir}|g' \
+          -e 's|@lsbindir[@]|${lsbindir}|g'
+
+LIBZEPHYR=${BUILDTOP}/lib/libzephyr.la
+CPPFLAGS=@CPPFLAGS@
+CFLAGS=@CFLAGS@
+ALL_CFLAGS=${CFLAGS} -DSYSCONFDIR=\"${sysconfdir}\" -I${top_srcdir}/h \
+	-I${BUILDTOP}/h -I. ${CPPFLAGS}
+LDFLAGS=@LDFLAGS@
+LIBS=${LIBZEPHYR} @LIBS@ -lcom_err @ARES_LIBS@
+HESIOD_LIBS=@HESIOD_LIBS@
+
+NMOBJS=	zsrv_err.o access.o acl_files.o bdump.o class.o client.o common.o \
+	dispatch.o kstuff.o global.o server.o subscr.o timer.o uloc.o \
+	zstring.o realm.o version.o utf8proc.o
+
+OBJS= main.o $(NMOBJS)
+
+TESTOBJS = test_server.o $(NMOBJS)
+
+all: zephyrd zephyrd.8 test_server
+
+zephyrd: ${OBJS} ${LIBZEPHYR}
+	${LIBTOOL} --mode=link ${CC} ${LDFLAGS} -o $@ ${OBJS} ${LIBS} ${HESIOD_LIBS}
+
+test_server: $(TESTOBJS)
+	${LIBTOOL} --mode=link ${CC} ${LDFLAGS} -o $@ ${TESTOBJS} ${LIBS} ${HESIOD_LIBS}
+
+zsrv_err.h: zsrv_err.c
+zsrv_err.c: zsrv_err.et
+	compile_et ${srcdir}/zsrv_err.et
+
+.c.o:
+	${CC} -c ${ALL_CFLAGS} $<
+
+zephyrd.8: ${srcdir}/zephyrd.8.in Makefile
+	${editman} ${srcdir}/$@.in > $@.tmp
+	mv $@.tmp $@
+
+check: test_server
+	./test_server
+
+# No dependency on zephyrd, to avoid rebuilding version.o.
+install: zephyrd.8 zephyrd
+	${LIBTOOL} --mode=install ${INSTALL} -m 755 zephyrd \
+	  ${DESTDIR}${sbindir}
+	${INSTALL} -m 644 zephyrd.8 ${DESTDIR}${mandir}/man8
+	${INSTALL} -m 644 ${srcdir}/default.subscriptions \
+		${DESTDIR}${sysconfdir}/zephyr
+
+clean:
+	${LIBTOOL} --mode=clean rm -f zephyrd test_server
+	rm -f ${OBJS} zsrv_err.[ch]
+	rm -f zephyrd.8
+
+${OBJS} ${TESTOBJS}: zserver.h zsrv_err.h timer.h zsrv_conf.h zstring.h access.h acl.h
+${OBJS} ${TESTOBJS}: ${top_srcdir}/h/internal.h ${top_srcdir}/h/sysdep.h
+${OBJS} ${TESTOBJS}: ${BUILDTOP}/h/config.h ${BUILDTOP}/h/zephyr/zephyr.h
+${OBJS} ${TESTOBJS}: ${BUILDTOP}/h/zephyr/zephyr_err.h
+version.o: ${BUILDTOP}/h/zephyr_version.h
+
+.PHONY: all check install clean
+

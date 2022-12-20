@@ -1,0 +1,48 @@
+# Danish translation zephyr.
+# Copyright (C) 2011 zephyr & nedenstående oversættere.
+# This file is distributed under the same license as the zephyr package.
+# Joe Hansen <joedalton2@yahoo.dk>, 2011.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: zephyr VERSION\n"
+"Report-Msgid-Bugs-To: Source: zephyr@packages.debian.org\n"
+"POT-Creation-Date: 2007-12-05 09:47+0530\n"
+"PO-Revision-Date: 2011-04-03 17:30+01:00\n"
+"Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
+"Language-Team: Danish <debian-l10n-danish@lists.debian.org> \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: string
+#. Description
+#: ../zephyr-clients.templates:2001 ../zephyr-server.templates:2001
+msgid "Zephyr servers:"
+msgstr "Zephyrservere:"
+
+#. Type: string
+#. Description
+#: ../zephyr-clients.templates:2001 ../zephyr-server.templates:2001
+msgid ""
+"Please specify the full names of the Zephyr servers, as a space-separated "
+"list."
+msgstr ""
+"Angiv venligst det fulde navn på Zephyrserverne som en mellemrumsadskilt "
+"liste."
+
+#. Type: string
+#. Description
+#: ../zephyr-clients.templates:2001 ../zephyr-server.templates:2001
+msgid ""
+"The list configured on clients can be a subset of the list configured on "
+"servers."
+msgstr ""
+"Listen konfigureret på klienter kan være et undersæt af listen konfigureret "
+"på servere."
+
+#. Type: string
+#. Description
+#: ../zephyr-clients.templates:2001
+msgid "This can be left empty if Hesiod is used to advertise Zephyr servers."
+msgstr "Denne kan efterlades tom hvis Hesiod bruges til at annoncere Zephyrservere."

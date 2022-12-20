@@ -1,0 +1,4 @@
+# This package provides a libzephyr build with a different
+# authentication scheme.  Upstream is working on runtime rather
+# than compile time configuration...
+libzephyr4-@VARIETY@ binary: package-name-doesnt-match-sonames

@@ -1,0 +1,362 @@
+Zephyr Library Tests
+
+This file is a collection of doctests for the zephyr library.
+Minimum coverage goal is "every non-static function, and every data
+structure that shows up in those function prototypes."
+
+This file is also a test of the practicality of rich doctests as API
+documentation.  It will start out as a bunch of snippets, and later be
+edited to use actual chapters and appendices - narrative structure
+beyond "here's a test! here's another test!"  At that point we'll also
+pick a formatting language (probably ReStructured Text but for now, we
+need no more than whitespace separated paragraphs to be
+comprehensible.)
+
+Generic library setup that should be moved into zephyr_tests.py:
+
+   >>> import os, socket
+   >>> import zephyr_tests
+   >>> buildpath = zephyr_tests.find_buildpath()
+   >>> libzephyr_path = zephyr_tests.find_libzephyr()
+   >>> _z = zephyr_tests.libZephyr(libzephyr_path)
+
+ZInit() got run by libZephyr, internally.  Make sure other things
+actually got set up:
+
+   >>> assert _z.ZGetFD() == -1
+   >>> Zauthtype = _z.Zauthtype
+   >>> assert Zauthtype in (0, 4, 5)
+   >>> realm = _z.ZGetRealm()
+   >>> assert realm
+   >>> if Zauthtype: assert realm != 'local-realm'
+   >>> if not Zauthtype: assert realm == 'local-realm'
+   >>> assert _z.ZGetSender()
+   >>> assert "@" in _z.ZGetSender()
+
+ZNotice_t structure pseudo-round-trip (needs a lot more explicit
+settings and assertions to be a real round-trip test...)
+
+   >>> notice = zephyr_tests.ZNotice_t()
+   >>> from ctypes import sizeof
+   >>> assert sizeof(notice) > 150
+   >>> from ctypes import c_char_p, c_int
+   >>> zbuf = c_char_p(0)
+   >>> zbuflen = c_int(0)
+   >>> st = _z.ZFormatNotice(notice, zbuf, zbuflen, zephyr_tests.ZNOAUTH)
+   >>> assert st == 0
+   >>> assert zbuf.value.startswith("ZEPH")
+   >>> new_notice = zephyr_tests.ZNotice_t()
+   >>> st = _z.ZParseNotice(zbuf, zbuflen, new_notice)
+   >>> assert st == 0
+   >>> assert new_notice.z_version.startswith("ZEPH")
+
+Should we check for ZEPH0.2 now, or leave that open?
+
+   >>> notice = zephyr_tests.ZNotice_t()
+   >>> notice.z_kind = zephyr_tests.ZNotice_Kind_t.UNSAFE
+   >>> notice.z_class = c_char_p("testclass")
+   >>> notice.z_class_inst = c_char_p("testinstance")
+   >>> notice.z_opcode = c_char_p("TESTOPCODE")
+   >>> notice.z_sender = c_char_p("someone")
+   >>> notice.z_recipient = c_char_p("someone_else")
+   >>> notice.z_message = c_char_p("short message body")
+   >>> notice.z_message_len = c_int(len("short message body"))
+   >>> zbuf = c_char_p(0)
+   >>> zbuflen = c_int(0)
+   >>> st = _z.ZFormatNotice(notice, zbuf, zbuflen, zephyr_tests.ZNOAUTH)
+   >>> assert st == 0
+   >>> assert zbuf.value.startswith("ZEPH")
+   >>> new_notice = zephyr_tests.ZNotice_t()
+   >>> st = _z.ZParseNotice(zbuf, zbuflen, new_notice)
+   >>> assert st == 0
+   >>> assert new_notice.z_version.startswith("ZEPH")
+   >>> new_notice.z_class
+   'testclass'
+   >>> new_notice.z_class_inst
+   'testinstance'
+   >>> new_notice.z_opcode
+   'TESTOPCODE'
+   >>> new_notice.z_message[:new_notice.z_message_len]
+   'short message body'
+
+Simple test of ZCompareUID:
+
+   >>> uid1 = zephyr_tests.ZUnique_Id_t()
+   >>> uid2 = zephyr_tests.ZUnique_Id_t()
+   >>> assert _z.ZCompareUID(uid1, uid2), "null uids don't match"
+
+There's no ZUnique_Id_t constructor - Z_FormatHeader and
+Z_NewFormatHeader initialize notice->z_uid directly, so cheat and use
+ZNotice_t as the constructor...
+
+   >>> notice1 = zephyr_tests.ZNotice_t()
+   >>> zbuf = c_char_p(0)
+   >>> zbuflen = c_int(0)
+   >>> st = _z.ZFormatNotice(notice1, zbuf, zbuflen, zephyr_tests.ZNOAUTH)
+   >>> assert st == 0, "ZFormatNotice notice1 failed"
+
+   >>> notice2 = zephyr_tests.ZNotice_t()
+   >>> zbuf = c_char_p(0)
+   >>> zbuflen = c_int(0)
+   >>> st = _z.ZFormatNotice(notice2, zbuf, zbuflen, zephyr_tests.ZNOAUTH)
+   >>> assert st == 0, "ZFormatNotice notice1 failed"
+
+   >>> assert not _z.ZCompareUID(notice1.z_uid, notice2.z_uid), "distinct notices don't compare as distinct"
+
+Trivial test of ZExpandRealm, using terribly well known hostnames:
+
+   >>> assert _z.ZExpandRealm("") == ""
+   >>> if Zauthtype: assert _z.ZExpandRealm("localhost") == ""
+   >>> if Zauthtype: assert _z.ZExpandRealm("bitsy.mit.edu") == "ATHENA.MIT.EDU"
+   >>> if not Zauthtype: assert _z.ZExpandRealm("localhost") == socket.getfqdn("localhost").upper()
+   >>> if not Zauthtype: assert _z.ZExpandRealm("bitsy.mit.edu") == "BITSY.MIT.EDU"
+
+ZGetCharsetString is a utility function for clients that need to know the
+full name of the output character set, e.g. zwgc.  Calling it
+with NULL will get it from $ZEPHYR_CHARSET or the locale.
+Trivial testing of ZGetCharsetString:
+
+   >>> os.environ['LANG'] = 'C'
+   >>> assert _z.ZGetCharsetString(None) == 'ANSI_X3.4-1968', "charset is " + _z.ZGetCharsetString(None)
+   >>> os.environ['ZEPHYR_CHARSET'] = 'ISO-8859-1'
+   >>> assert _z.ZGetCharsetString(None) == 'ISO-8859-1'
+   >>> assert _z.ZGetCharsetString('UTF-8') == 'UTF-8'
+
+ZGetCharset is a utility function for clients that need to know the
+registry number of a character set, e.g. zwrite.  It gets its defaults from
+alal the places that ZGetCharsetString does, because it calls it.
+Trivial testing of ZGetCharset:
+
+   >>> assert _z.ZGetCharset(None) == 4
+   >>> assert _z.ZGetCharset('NONE') == 0
+   >>> assert _z.ZGetCharset('UNKNOWN') == 0
+   >>> assert _z.ZGetCharset('ANSI_X3.4-1968') == 4
+   >>> assert _z.ZGetCharset('ISO-8859-1') == 4
+   >>> assert _z.ZGetCharset('UTF-8') == 106
+   >>> assert _z.ZGetCharset('GIANT RUBBER PANTS') == 0
+
+ZCharsetToString converts the registry numbers of the "allowed" character
+sets into strings.
+Trivial testing of ZCharsetToString:
+
+   >>> assert _z.ZCharsetToString(0) == 'UNKNOWN'
+   >>> assert _z.ZCharsetToString(4) == 'ISO-8859-1'
+   >>> assert _z.ZCharsetToString(106) == 'UTF-8'
+   >>> assert _z.ZCharsetToString(1701) == 'UNKNOWN'
+
+ZTransliterate does character set conversion for display purposes, and when
+it works, it sticks a malloc'd buffer in to **bufp.
+"Trivial" testing of ZTransliterate:
+
+   >>> from ctypes import c_char_p, c_int, byref, string_at
+   >>> from errno import EINVAL, EILSEQ
+   >>> bufp = c_char_p(None)
+   >>> length = c_int(0)
+   >>> assert _z.ZTransliterate('test', 4, 'ANSI_X3.4-1968', 'ANSI_X3.4-1968', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 'test'
+   >>> assert _z.ZTransliterate('test', 4, 'ANSI_X3.4-1968', 'UTF-8', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 'test'
+   >>> assert _z.ZTransliterate('test', 4, 'ISO-8859-1', 'ANSI_X3.4-1968', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 'test'
+   >>> assert _z.ZTransliterate('test', 4, 'ISO-8859-1', 'ANSI_X3.4-1968', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 'test'
+   >>> assert _z.ZTransliterate('t\xebst', 4, 'ISO-8859-1', 'ANSI_X3.4-1968', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 't?st', "transliterated string is " + string_at(bufp, length)
+   >>> assert _z.ZTransliterate('t\xebst', 4, 'ISO-8859-1', 'UTF-8', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 't\xc3\xabst'
+   >>> assert _z.ZTransliterate('t\xc3\xabst', 5, 'UTF-8', 'ISO-8859-1', byref(bufp), byref(length)) == 0
+   >>> assert string_at(bufp, length) == 't\xebst'
+   >>> assert _z.ZTransliterate('t\xc3\xabst', 5, 'UTF-8', 'Oh, my bees', byref(bufp), byref(length)) == EINVAL
+   >>> assert _z.ZTransliterate('t\xc3x\xabst', 5, 'UTF-8', 'ISO-8859-1', byref(bufp), byref(length)) == EILSEQ
+
+Trivial test of ZOpenPort and ZClosePort:
+
+   >>> from ctypes import c_ushort
+   >>> port = c_ushort(0)
+   >>> st = _z.ZOpenPort(port)
+   >>> assert st == 0
+   >>> assert _z.ZGetFD() != -1
+   >>> zsock = zephyr_tests.getsockname(_z.ZGetFD())
+   >>> assert zsock
+   >>> from socket import AF_INET
+   >>> assert zsock.sa_family.value == AF_INET, zsock.sa_family.value
+
+(Here we're actually using getsockname as an "is that file descriptor
+ a socket" test; the wrapper is weak in that it can't check for
+ ENOTSOCK without requiring Python 2.6, so it just throws an exception
+ on any return of -1.  If ctypes.cast worked on sockaddr, we could
+ also cast it to sockaddr_in and look at the address and port...)
+
+   >>> assert port != 0
+   >>> print type(_z.ZGetDestAddr())
+   <class 'zephyr_ctypes.sockaddr_in'>
+   >>> print _z.ZGetDestAddr().sin_family.pformat()
+   ['AF_INET(2)']
+   >>> print _z.ZGetDestAddr().sin_addr.pformat()
+   ['127.0.0.1']
+   >>> assert _z.ZClosePort() == 0
+   >>> assert _z.ZGetFD() == -1
+
+ZMakeAscii takes a target buffer and length and an input buffer and
+length, and generates the "special" Zephyr encoding.
+
+TODO: use the "reference" implementation to run a bunch of
+random-value comparison tests.
+
+   >>> sample = "test\0message"
+   >>> ref = zephyr_tests.py_make_ascii(sample)
+   >>> from ctypes import create_string_buffer
+   >>> outlen = len(sample) * 6
+   >>> outbuf = create_string_buffer(outlen)
+   >>> st = _z.ZMakeAscii(outbuf, outlen, sample, len(sample))
+   >>> assert st == 0
+   >>> assert outbuf.value == ref, "%r != %r" % (outbuf.value, ref)
+
+A few simple string tests:
+   >>> def zma(sample):
+   ...   outlen = len(sample) * 6
+   ...   outbuf = create_string_buffer(outlen)
+   ...   st = _z.ZMakeAscii(outbuf, outlen, sample, len(sample))
+   ...   assert st == 0
+   ...   return outbuf.value
+   >>> zma("")
+   ''
+   >>> zma("j")
+   '0x6A'
+   >>> zma("jK")
+   '0x6A4B'
+   >>> zma("jK__\0")
+   '0x6A4B5F5F 0x00'
+
+Same thing with ZMakeZcode, a compact binary format that is still NUL-terminated...
+
+   >>> sample = "test\0message"
+   >>> ref = zephyr_tests.py_make_zcode(sample)
+   >>> from ctypes import create_string_buffer
+   >>> outlen = len(sample) * 2
+   >>> outbuf = create_string_buffer(outlen)
+   >>> st = _z.ZMakeZcode(outbuf, outlen, sample, len(sample))
+   >>> assert st == 0
+   >>> assert outbuf.value == ref, "%r != %r" % (outbuf.value, ref)
+
+
+Queued Packet Tests
+===================
+
+Eventually we'll want tests that install a realm (or several) and
+actually send and receive packets against them, so-called "system
+tests".  In the meantime, a faster and more local test that
+synthesizes packets and feeds them through the queuing mechanism will
+get us some more coverage.
+
+   >>> from socket import SOCK_DGRAM, socket, ntohs
+   >>> port = c_ushort(0)
+   >>> st = _z.ZOpenPort(port)
+   >>> port = ntohs(port.value)
+   >>> assert port
+   >>> sock = socket(AF_INET, SOCK_DGRAM)
+   >>> assert sock
+   >>> assert _z.ZPending() == 0
+
+TODO: cook up test-specific notices, but for now we've got some lying
+around from above...
+
+   >>> zwhole = string_at(zbuf, size=zbuflen)
+   >>> wrote = sock.sendto(zwhole, ('127.0.0.1', port))
+   >>> assert wrote == zbuflen.value, "%s != %s" % (wrote, zbuflen.value)
+   >>> zcount = _z.ZPending()
+   >>> assert zcount == 1
+
+Coverage:
+
+Files complete:
+   ZOpenPort.c
+   ZClosePort.c
+   ZExpnRlm.c
+   ZCmpUID.c
+   charset.c
+   ZGetSender.c (needs richer test)
+
+Pending:
+
+ZRequestLocations (ZAsyncLocate.c)
+ZParseLocations (ZAsyncLocate.c)
+ZCompareALDPred (ZAsyncLocate.c)
+ZFreeALD (ZAsyncLocate.c)
+ZCheckAuthentication (ZCkAuth.c)
+ZCheckIfNotice (ZCkIfNot.c)
+ZCheckZcodeAuthentication (ZCkZAut.c)
+ZCompareUIDPred (ZCmpUIDP.c)
+ZCompareMultiUIDPred (ZCmpUIDP.c)
+ZFlushLocations (ZFlsLocs.c)
+ZFlushSubscriptions (ZFlsSubs.c)
+ZFormatAuthenticNotice (ZFmtAuth.c)
+ZFormatAuthenticNoticeV5 (ZFmtAuth.c)
+ZFormatNoticeList (ZFmtList.c)
+ZFormatNotice (ZFmtNotice.c)
+ZNewFormatNotice (ZFmtNotice.c)
+ZFormatRawNotice (ZFmtRaw.c)
+ZFormatRawNoticeList (ZFmtRawLst.c)
+ZFormatSmallRawNoticeList (ZFmtSmRLst.c)
+ZFormatSmallRawNotice (ZFmtSmRaw.c)
+ZNewFormatSmallRawNotice (ZFmtSmRaw.c)
+ZFreeNotice (ZFreeNot.c)
+ZGetLocations (ZGetLocs.c)
+ZGetSubscriptions (ZGetSubs.c)
+ZGetWGPort (ZGetWGPort.c)
+ZIfNotice (ZIfNotice.c)
+ZGetRealm (ZInit.c)
+ZQLength (ZInit.c)
+ZInitLocationInfo (ZLocations.c)
+ZSetLocation (ZLocations.c)
+ZUnsetLocation (ZLocations.c)
+ZFlushMyLocations (ZLocations.c)
+ZParseExposureLevel (ZLocations.c)
+Z_SendLocation (ZLocations.c)
+ZMakeAscii32 (ZMakeAscii.c)
+ZMakeAscii16 (ZMakeAscii.c)
+ZMakeZcode32 (ZMakeZcode.c)
+ZMakeZcode (ZMakeZcode.c)
+ZResetAuthentication (ZMkAuth.c)
+ZMakeAuthentication (ZMkAuth.c)
+ZMakeZcodeAuthentication (ZMkAuth.c)
+ZMakeZcodeRealmAuthentication (ZMkAuth.c)
+ZGetCreds (ZMkAuth.c)
+ZGetCredsRealm (ZMkAuth.c)
+ZLocateUser (ZNewLocU.c)
+ZParseNotice (ZParseNot.c)
+ZPeekIfNotice (ZPeekIfNot.c)
+ZPeekNotice (ZPeekNot.c)
+ZPeekPacket (ZPeekPkt.c)
+ZPending (ZPending.c)
+ZReadAscii (ZReadAscii.c)
+ZReadAscii32 (ZReadAscii.c)
+ZReadAscii16 (ZReadAscii.c)
+ZReadZcode (ZReadZcode.c)
+ZReceiveNotice (ZRecvNot.c)
+ZReceivePacket (ZRecvPkt.c)
+ZRetrieveSubscriptions (ZRetSubs.c)
+ZRetrieveDefaultSubscriptions (ZRetSubs.c)
+ZSendList (ZSendList.c)
+ZSrvSendList (ZSendList.c)
+ZSendNotice (ZSendNot.c)
+ZSrvSendNotice (ZSendNot.c)
+ZSendPacket (ZSendPkt.c)
+ZSendRawList (ZSendRLst.c)
+ZSrvSendRawList (ZSendRLst.c)
+ZSendRawNotice (ZSendRaw.c)
+ZSetDestAddr (ZSetDest.c)
+ZSetFD (ZSetFD.c)
+ZSetServerState (ZSetSrv.c)
+ZPunt (ZSubs.c)
+ZSubscribeTo (ZSubs.c)
+ZSubscribeToSansDefaults (ZSubs.c)
+ZUnsubscribeTo (ZSubs.c)
+ZCancelSubscriptions (ZSubs.c)
+ZGetVariable (ZVariables.c)
+ZSetVariable (ZVariables.c)
+ZUnsetVariable (ZVariables.c)
+Z_WaitForNotice (ZWait4Not.c)
+ZhmStat (ZhmStat.c)
+
+(...continue with Zinternal.c...)

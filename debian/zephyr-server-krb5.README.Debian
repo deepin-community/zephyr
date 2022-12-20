@@ -1,0 +1,23 @@
+To run a zephyr server with MIT Kerberos support, you need to generate
+a keytab for the principal zephyr/zephyr@YOUR.REALM.NAME.
+
+Doing this with the MIT Kerberos V server is a slightly convoluted
+process, but here we go:
+
+[Note that this presumes that you have Kerberos administrator
+privileges, if you don't, find someone who does.]
+
+At the kadmin prompt, type
+
+ank -randkey zephyr/zephyr
+
+this creates the Kerberos principal, with whatever key types and
+cryptosystems your realm defaults to.  Next, also at the kadmin
+prompt, type the following substituting appropriately for your realm
+name and various file locations:
+
+xst -k /etc/zephyr/krb5.keytab zephyr/zephyr@YOUR.REALM.NAME
+
+The keytab files need to be the same on all of your zephyr servers;
+note that with the MIT kerberos server, xst changes the key each time,
+invalidating previously-extracted keytabs.
